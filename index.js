@@ -281,22 +281,16 @@ const buildSwipeDom = (mfc, el)=>{
                 if (busy()) return;
                 log('[CONTINUE]');
                 
-                // --- PARAGRAPH FORCE & AUTO-CLEANUP LOGIC ---
+                // --- PARAGRAPH FORCE + AGGRESSIVE CLEANUP ---
                 
                 // 1. Get the current message and save its original state
                 const mes = chat.at(-1);
                 const originalText = mes.mes;
                 
                 // 2. The Nudge: "\n\n."
-                // Two newlines (paragraph break) + a Period (visible char protector).
-                // This is structural, so models interpret it as "New Paragraph" instead of "User Question".
+                // Forces the AI to see a paragraph break.
                 const marker = "\n\n."; 
                 
-                if (!originalText.trim().endsWith(".")) {
-                    // If text doesn't end with a period, ensure we don't accidentally merge words.
-                    // But the newlines handle that safely.
-                }
-
                 // Append the marker if not present
                 if (!originalText.endsWith(marker)) {
                     mes.mes = originalText + marker;
@@ -317,24 +311,26 @@ const buildSwipeDom = (mfc, el)=>{
                     if (currentText.startsWith(originalText + marker)) {
                         
                         // Extract new content
-                        const newContent = currentText.substring(originalText.length + marker.length);
+                        let newContent = currentText.substring(originalText.length + marker.length);
+
+                        // --- THE FIX FOR ". " STARTING TEXT ---
+                        // Regex: Removes any Spaces, Dots, or Newlines at the very start of the new text.
+                        newContent = newContent.replace(/^[\s\.\n]+/, "");
                         
-                        // Stitch: Original + New Content (Deleting the marker entirely)
+                        // Stitch: Original + Cleaned New Content
                         newMes.mes = originalText + newContent;
                         
-                        console.log('[MFC] Marker removed. Text restored.');
+                        console.log('[MFC] Marker removed. Text restored and cleaned.');
                         saveChatConditional();
                         eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
                     } else if (currentText === originalText + marker) {
-                         // Fallback: If it timed out anyway, clean the marker so it doesn't look ugly.
+                         // Fallback: If it timed out anyway, clean the marker.
                          newMes.mes = originalText;
                          saveChatConditional();
                          eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
                     }
                 }
                 
-                // --- END LOGIC ---
-
                 log('DONE');
             });
             dom.append(cont);
