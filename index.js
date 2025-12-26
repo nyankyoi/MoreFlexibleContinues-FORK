@@ -281,18 +281,16 @@ const buildSwipeDom = (mfc, el)=>{
                 if (busy()) return;
                 log('[CONTINUE]');
                 
-                // --- ROBUST FORCE & FUZZY CLEANUP LOGIC ---
+                // --- ROBUST FORCE & CLEANUP ---
                 
-                // 1. Get the current message and save its original state
                 const mes = chat.at(-1);
                 const originalText = mes.mes;
                 
-                // 2. The Nudge: "\n..."
-                // Simple, Visible, Universal.
-                // We use this because it's distinct enough to find later, but standard enough to prompt writing.
-                const marker = "\n..."; 
-                
-                // Append the marker if not present
+                // We use Space+Dots because it survives almost all proxies.
+                const marker = " ..."; 
+                const markerLength = marker.length;
+
+                // Append marker if not present
                 if (!originalText.endsWith(marker)) {
                     mes.mes = originalText + marker;
                     saveChatConditional();
@@ -301,43 +299,34 @@ const buildSwipeDom = (mfc, el)=>{
                 }
 
                 try {
-                    // 3. Trigger Generation (Same Box)
                     await Generate('continue');
                 } finally {
-                    // 4. ROBUST CLEANUP
                     const newMes = chat.at(-1);
                     const currentText = newMes.mes;
                     
-                    // Instead of checking startsWith, we find the LAST occurrence of our marker.
-                    // This is robust against the proxy stripping spaces from the *beginning* of the message.
-                    const markerIndex = currentText.lastIndexOf(marker);
+                    // FUZZY FIND: We look for "..." near the junction point.
+                    // This finds it even if the proxy ate the space or the newline.
+                    const markerIndex = currentText.lastIndexOf("...");
                     
                     if (markerIndex !== -1) {
-                        // Found the marker!
-                        // Extract new content (everything after the marker)
-                        let newContent = currentText.substring(markerIndex + marker.length);
+                        // Found the dots! Cut everything before them.
+                        let newContent = currentText.substring(markerIndex + 3);
 
-                        // --- AGGRESSIVE TRIMMING ---
-                        // Remove leading newlines, spaces, or dots from the NEW content only.
-                        // This handles the "It sends '.'" issue.
+                        // CLEANUP: Remove any leading Dots, Spaces, or Newlines from the new text
+                        // This fixes the issue where the AI sees "..." and types " ." or ". "
                         newContent = newContent.replace(/^[\s\.\n]+/, "");
                         
-                        // Stitch: Original Text (untouched) + Cleaned New Content
-                        // Note: We use originalText to ensure we don't accidentally keep proxy modifications.
+                        // Stitch it back together
                         newMes.mes = originalText + newContent;
                         
-                        console.log('[MFC] Marker removed. Text restored and cleaned.');
+                        console.log('[MFC] Marker found and removed. Content cleaned.');
                         saveChatConditional();
                         eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
-                    } else {
-                         // Fallback: If marker is gone (proxy ate it?), try to restore original text safely.
-                         // But if we can't find the marker, it's safer to leave it alone or revert.
-                         // Let's assume if marker is gone, we should revert to originalText to avoid garbage.
-                         if (currentText === originalText + marker) {
-                             newMes.mes = originalText;
-                             saveChatConditional();
-                             eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
-                         }
+                    } else if (currentText === originalText + marker) {
+                         // Fallback: Timeout/No Response. Remove marker so it doesn't stay visible.
+                         newMes.mes = originalText;
+                         saveChatConditional();
+                         eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
                     }
                 }
                 
