@@ -5,18 +5,12 @@ import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.j
 import { delay } from '../../../utils.js';
 import { injectQuickActionsWrapper } from './lib/injectQuickActionsWrapper.js';
 
-
-
-
 const log = (...msg)=>console.log('[MFC]', ...msg);
 const busy = ()=>{
     /**@type {HTMLElement} */
     const el = document.querySelector('.mes_stop');
     return el.offsetHeight !== 0 || el.offsetWidth !== 0;
 };
-
-
-
 
 let settings;
 if (!extension_settings.moreFlexibleContinues) {
@@ -26,9 +20,6 @@ if (!extension_settings.moreFlexibleContinues) {
     };
 }
 settings = extension_settings.moreFlexibleContinues;
-
-
-
 
 let isListening = false;
 let startMes;
@@ -71,13 +62,11 @@ const onGenerationStarted = async(type, namedArgs, dryRun)=>{
 let hoverMes;
 let hoverOverlay;
 const onUnhover = ()=>{
-    // log('[UNHOVER]');
     hoverOverlay?.remove();
     hoverMes?.classList?.remove('mfc--hover');
 };
 const onHover = ()=>{
     if (busy()) return;
-    // log('[HOVER]');
     const mes = chat.at(-1);
     if (mes.continueSwipe?.parent?.length) {
         let swipe;
@@ -205,7 +194,6 @@ const buildSwipeDom = (mfc, el)=>{
                 if (busy()) return;
                 log('[SWIPES]');
 
-                // const mes = chat.at(-1);
                 const mes = chat[Number(swipesTrigger.closest('[mesid]').getAttribute('mesid'))];
                 if (mes.continueHistory[mes.swipe_id ?? 0]) {
                     const renderTree = (swipe, act, isRoot=false)=>{
@@ -276,8 +264,6 @@ const buildSwipeDom = (mfc, el)=>{
                         content.style.setProperty('--triggerTop', `${rect.bottom}px`);
                         content.style.setProperty('--triggerRight', `${rect.right}px`);
                         content.classList[rect.top > window.innerHeight / 2 ? 'add' : 'remove']('mfc--flipV');
-                        // content.style.top = `${swipesTrigger.getBoundingClientRect().bottom}px`;
-                        // content.style.left = `${swipesTrigger.getBoundingClientRect().right}px`;
                         document.body.append(blocker);
                         await new Promise(resolve=>requestAnimationFrame(resolve));
 
@@ -295,43 +281,33 @@ const buildSwipeDom = (mfc, el)=>{
                 if (busy()) return;
                 log('[CONTINUE]');
                 
-                // --- CUSTOM LOGIC START ---
+                // --- SMART NUDGE LOGIC START ---
                 
-                const previousMes = chat.at(-1).mes;
-                const previousLen = previousMes.trim().length;
-
-                // Step 1: Attempt standard continue (for direct keys / compliant models)
-                await Generate('continue');
-
-                const currentMes = chat.at(-1).mes;
-                const currentLen = currentMes.trim().length;
-
-                // Step 2: If the model refused to add text (length unchanged), send "[continue]"
-                if (currentLen <= previousLen) {
-                    console.log('[MFC] Continue refused/empty. Sending [continue] command.');
+                // Get the last message
+                const mes = chat.at(-1);
+                const text = mes.mes.trim();
+                
+                // Check if the message ends with punctuation that suggests it's "Done"
+                // (e.g. . ! ? " ” *)
+                const isComplete = /[.!?…]["”*]?$/.test(text) || text.endsWith('”') || text.endsWith('"') || text.endsWith('*');
+                
+                // If it looks complete, add a NEWLINE to force the model to start a new paragraph
+                // inside the SAME text box.
+                if (isComplete) {
+                    console.log('[MFC] Message looks complete. Appending newline to force continuation.');
+                    mes.mes = mes.mes + "\n";
                     
-                    // Manually push the "[continue]" user message to chat
-                    chat.push({
-                        name: "User", // This will likely be replaced by ST's formatter or default to 'User'
-                        is_user: true,
-                        is_system: false,
-                        send_date: Date.now(),
-                        mes: "[continue]",
-                        extra: {},
-                        force_avatar: null
-                    });
-                    
-                    // Update the UI to show the new message
+                    // We need to save this change so the backend sees the newline
                     saveChatConditional();
-                    eventSource.emit(event_types.CHAT_CHANGED);
                     
-                    // Trigger generation for the new prompt
-                    await Generate('normal');
-                } else {
-                    console.log('[MFC] Continue successful.');
+                    // (Optional) Emit event to update UI instantly so you see the jump
+                    eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
                 }
+
+                // Call the STANDARD continue function, which keeps text in the same box.
+                await Generate('continue');
                 
-                // --- CUSTOM LOGIC END ---
+                // --- SMART NUDGE LOGIC END ---
 
                 log('DONE');
             });
@@ -399,7 +375,6 @@ const onMessageDone = async(mesIdx)=>{
 
 const onMessageEdited = async(mesIdx)=>{
     log('[MESSAGE_EDITED]', mesIdx);
-    // check how much of the beginning of the message is still intact
     let swipes = chat[mesIdx].continueHistory;
     let swipe;
     let text = '';
@@ -469,8 +444,6 @@ const onSwipe = async(mesId)=>{
     await delay (100);
     const mes = chat[mesId];
     if (isGen) {
-        // a vanilla swipe simply copies the previous swipe's `extra` object
-        // if the previous swipe was a favorite the new one will be marked as favorite, too...
         if (!mes.swipe_info) {
             mes.swipe_info = [];
         }
@@ -497,7 +470,6 @@ const onSwipe = async(mesId)=>{
 };
 
 const onChatChanged = ()=>{
-    // migrate swipe favorite from extra to swipe info
     {
         chat.forEach((mes,mesIdx)=>{
             if (mes.swipe_info?.length) {
@@ -513,9 +485,6 @@ const onChatChanged = ()=>{
     }
     makeSwipeDom();
 };
-
-
-
 
 SlashCommandParser.addCommandObject(SlashCommand.fromProps({ name: 'continue-undo',
     callback: ()=>{
