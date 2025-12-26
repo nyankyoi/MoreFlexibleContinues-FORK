@@ -281,15 +281,15 @@ const buildSwipeDom = (mfc, el)=>{
                 if (busy()) return;
                 log('[CONTINUE]');
                 
-                // --- ROBUST FORCE & CLEANUP ---
+                // --- INSTRUCTION FORCE & CLEANUP ---
                 
                 const mes = chat.at(-1);
                 const originalText = mes.mes;
                 
-                // We use Space+Dots because it survives almost all proxies.
-                const marker = " ..."; 
-                const markerLength = marker.length;
-
+                // The Marker includes the Force Text (...) AND the System Instruction.
+                // We use {{user}} and {{char}} which SillyTavern will swap before sending to the AI.
+                const marker = " ... [System Note: NEVER WRITE FOR {{user}} in terms of dialogues and action. It's sole purpose is to only write for {{char}} and other various NPCs in the roleplay]";
+                
                 // Append marker if not present
                 if (!originalText.endsWith(marker)) {
                     mes.mes = originalText + marker;
@@ -304,26 +304,24 @@ const buildSwipeDom = (mfc, el)=>{
                     const newMes = chat.at(-1);
                     const currentText = newMes.mes;
                     
-                    // FUZZY FIND: We look for "..." near the junction point.
-                    // This finds it even if the proxy ate the space or the newline.
-                    const markerIndex = currentText.lastIndexOf("...");
+                    // Fuzzy Find: Look for the marker we added.
+                    const markerIndex = currentText.lastIndexOf(marker);
                     
                     if (markerIndex !== -1) {
-                        // Found the dots! Cut everything before them.
-                        let newContent = currentText.substring(markerIndex + 3);
+                        // Found it! Extract everything AFTER the instruction.
+                        let newContent = currentText.substring(markerIndex + marker.length);
 
-                        // CLEANUP: Remove any leading Dots, Spaces, or Newlines from the new text
-                        // This fixes the issue where the AI sees "..." and types " ." or ". "
+                        // CLEANUP: Remove any leading Dots, Spaces, or Newlines the AI added
                         newContent = newContent.replace(/^[\s\.\n]+/, "");
                         
-                        // Stitch it back together
+                        // Stitch it back: Original Text + New Content
                         newMes.mes = originalText + newContent;
                         
-                        console.log('[MFC] Marker found and removed. Content cleaned.');
+                        console.log('[MFC] Instruction marker removed. Text restored.');
                         saveChatConditional();
                         eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
                     } else if (currentText === originalText + marker) {
-                         // Fallback: Timeout/No Response. Remove marker so it doesn't stay visible.
+                         // Fallback: If AI timed out, remove the dirty marker.
                          newMes.mes = originalText;
                          saveChatConditional();
                          eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
