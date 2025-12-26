@@ -281,33 +281,23 @@ const buildSwipeDom = (mfc, el)=>{
                 if (busy()) return;
                 log('[CONTINUE]');
                 
-                // --- SMART NUDGE LOGIC START ---
+                // --- SIMPLE FORCE LOGIC START ---
                 
                 // Get the last message
                 const mes = chat.at(-1);
-                const text = mes.mes.trim();
-                
-                // Check if the message ends with punctuation that suggests it's "Done"
-                // (e.g. . ! ? " ” *)
-                const isComplete = /[.!?…]["”*]?$/.test(text) || text.endsWith('”') || text.endsWith('"') || text.endsWith('*');
-                
-                // If it looks complete, add a NEWLINE to force the model to start a new paragraph
-                // inside the SAME text box.
-                if (isComplete) {
-                    console.log('[MFC] Message looks complete. Appending newline to force continuation.');
-                    mes.mes = mes.mes + "\n";
-                    
-                    // We need to save this change so the backend sees the newline
-                    saveChatConditional();
-                    
-                    // (Optional) Emit event to update UI instantly so you see the jump
-                    eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
-                }
 
-                // Call the STANDARD continue function, which keeps text in the same box.
+                // Force append a single space.
+                // This breaks the "End of Sequence" state for the model
+                // but is invisible enough that it won't ruin your formatting.
+                mes.mes = mes.mes + " ";
+                
+                // Save the chat so the backend definitely sees the space
+                saveChatConditional();
+                
+                // Trigger the standard continue (keeps it in the same box)
                 await Generate('continue');
                 
-                // --- SMART NUDGE LOGIC END ---
+                // --- SIMPLE FORCE LOGIC END ---
 
                 log('DONE');
             });
