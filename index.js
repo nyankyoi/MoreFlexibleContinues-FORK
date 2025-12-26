@@ -281,16 +281,24 @@ const buildSwipeDom = (mfc, el)=>{
                 if (busy()) return;
                 log('[CONTINUE]');
                 
-                // --- VISIBLE NUDGE & AUTO-CLEANUP LOGIC ---
+                // --- PARAGRAPH FORCE & AUTO-CLEANUP LOGIC ---
                 
                 // 1. Get the current message and save its original state
                 const mes = chat.at(-1);
                 const originalText = mes.mes;
-                const marker = "..."; 
                 
-                // 2. Append visible text "..." (This forces the API to generate)
-                // We assume the model will see "..." and continue the sentence.
-                if (!originalText.trim().endsWith("...")) {
+                // 2. The Nudge: "\n\n."
+                // Two newlines (paragraph break) + a Period (visible char protector).
+                // This is structural, so models interpret it as "New Paragraph" instead of "User Question".
+                const marker = "\n\n."; 
+                
+                if (!originalText.trim().endsWith(".")) {
+                    // If text doesn't end with a period, ensure we don't accidentally merge words.
+                    // But the newlines handle that safely.
+                }
+
+                // Append the marker if not present
+                if (!originalText.endsWith(marker)) {
                     mes.mes = originalText + marker;
                     saveChatConditional();
                     eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
@@ -301,28 +309,24 @@ const buildSwipeDom = (mfc, el)=>{
                     // 3. Trigger Generation (Same Box)
                     await Generate('continue');
                 } finally {
-                    // 4. CLEANUP: This runs immediately after generation finishes.
-                    
-                    // Get the message again (it now contains: Original + Marker + NewText)
+                    // 4. CLEANUP
                     const newMes = chat.at(-1);
                     const currentText = newMes.mes;
                     
-                    // Check if our marker is still there (it should be)
-                    // We look for where the original text ended + the marker we added.
+                    // Check if the marker exists at the junction point
                     if (currentText.startsWith(originalText + marker)) {
                         
-                        // Extract everything AFTER the marker
+                        // Extract new content
                         const newContent = currentText.substring(originalText.length + marker.length);
                         
-                        // Stitch: Original Text + New Content (Deleting the marker)
+                        // Stitch: Original + New Content (Deleting the marker entirely)
                         newMes.mes = originalText + newContent;
                         
                         console.log('[MFC] Marker removed. Text restored.');
                         saveChatConditional();
                         eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
                     } else if (currentText === originalText + marker) {
-                         // Fallback: If the model *still* returned nothing (timeout/empty), 
-                         // at least remove the "..." so the message isn't ruined.
+                         // Fallback: If it timed out anyway, clean the marker so it doesn't look ugly.
                          newMes.mes = originalText;
                          saveChatConditional();
                          eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
