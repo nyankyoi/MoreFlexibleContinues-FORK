@@ -281,22 +281,49 @@ const buildSwipeDom = (mfc, el)=>{
                 if (busy()) return;
                 log('[CONTINUE]');
                 
-                // --- INVISIBLE NUDGE LOGIC ---
+                // --- VISIBLE NUDGE & CLEANUP LOGIC ---
                 
                 const mes = chat.at(-1);
+                // We use a marker that is visible text so the proxy doesn't delete it.
+                // We also track the original length to clean it up perfectly later.
+                const originalText = mes.mes;
+                const marker = "..."; 
+                
+                // Only add the marker if it's not already there
+                if (!originalText.trim().endsWith("...")) {
+                    mes.mes = originalText + marker;
+                    saveChatConditional();
+                    eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
+                    // Small delay to let the state settle
+                    await delay(50);
+                }
 
-                // Append a NON-BREAKING SPACE (\u00A0).
-                // This looks like a normal space to you, but proxies usually 
-                // consider it a "special character" and won't delete it.
-                // This forces the AI to see the text as "not finished".
-                mes.mes = mes.mes + "\u00A0";
-                
-                saveChatConditional();
-                eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
-                
-                await delay(50);
-                
-                await Generate('continue');
+                try {
+                    // Force the generation. The AI sees "..." and WILL write.
+                    await Generate('continue');
+                } finally {
+                    // --- CLEANUP ---
+                    // This runs immediately after generation finishes (or fails).
+                    // We grab the text again (which now includes the AI's new part).
+                    const newMes = chat.at(-1);
+                    const currentText = newMes.mes;
+                    
+                    // We check if our marker is still there at the junction point.
+                    // Logic: The text should start with (Original + Marker).
+                    // We want to turn (Original + Marker + New) into (Original + New).
+                    
+                    if (currentText.startsWith(originalText + marker)) {
+                        // Extract just the new part the AI wrote
+                        const newContent = currentText.substring(originalText.length + marker.length);
+                        
+                        // Combine Original + New Content (Deleting the marker)
+                        newMes.mes = originalText + newContent;
+                        
+                        console.log('[MFC] Marker removed. Text restored.');
+                        saveChatConditional();
+                        eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
+                    }
+                }
                 
                 // --- END LOGIC ---
 
