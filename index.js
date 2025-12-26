@@ -281,23 +281,26 @@ const buildSwipeDom = (mfc, el)=>{
                 if (busy()) return;
                 log('[CONTINUE]');
                 
-                // --- SIMPLE FORCE LOGIC START ---
+                // --- AGGRESSIVE PARAGRAPH BREAK LOGIC ---
                 
                 // Get the last message
                 const mes = chat.at(-1);
 
-                // Force append a single space.
-                // This breaks the "End of Sequence" state for the model
-                // but is invisible enough that it won't ruin your formatting.
-                mes.mes = mes.mes + " ";
+                // Append TWO newlines. 
+                // This is the universal signal for "New Paragraph" in completion models.
+                // It is much harder for the AI to ignore than a space.
+                mes.mes = mes.mes + "\n\n";
                 
-                // Save the chat so the backend definitely sees the space
+                // Save the chat so the backend sees the newlines
                 saveChatConditional();
+                
+                // Force UI update so you see the cursor move down immediately
+                eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
                 
                 // Trigger the standard continue (keeps it in the same box)
                 await Generate('continue');
                 
-                // --- SIMPLE FORCE LOGIC END ---
+                // --- END LOGIC ---
 
                 log('DONE');
             });
