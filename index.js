@@ -297,28 +297,38 @@ const buildSwipeDom = (mfc, el)=>{
                 
                 // --- CUSTOM LOGIC START ---
                 
-                // 1. Capture the message text BEFORE we try to continue
                 const previousMes = chat.at(-1).mes;
                 const previousLen = previousMes.trim().length;
 
-                // 2. Step 1: Attempt to continue the thought
-                // We trust the AI: if it's incomplete, it will add text.
+                // Step 1: Attempt standard continue (for direct keys / compliant models)
                 await Generate('continue');
 
-                // 3. Capture the message text AFTER the attempt
                 const currentMes = chat.at(-1).mes;
                 const currentLen = currentMes.trim().length;
 
-                // 4. Check if the thought process was completed
-                // If the length is effectively unchanged (or shorter), the AI had nothing to add.
-                // This means the "Thought Process" was already complete.
+                // Step 2: If the model refused to add text (length unchanged), send "[continue]"
                 if (currentLen <= previousLen) {
-                    console.log('[MFC] Continue added no meaningful text. Assuming complete. Triggering Normal generation.');
+                    console.log('[MFC] Continue refused/empty. Sending [continue] command.');
                     
-                    // Step 2: Continue the story (Generate a NEW message)
+                    // Manually push the "[continue]" user message to chat
+                    chat.push({
+                        name: "User", // This will likely be replaced by ST's formatter or default to 'User'
+                        is_user: true,
+                        is_system: false,
+                        send_date: Date.now(),
+                        mes: "[continue]",
+                        extra: {},
+                        force_avatar: null
+                    });
+                    
+                    // Update the UI to show the new message
+                    saveChatConditional();
+                    eventSource.emit(event_types.CHAT_CHANGED);
+                    
+                    // Trigger generation for the new prompt
                     await Generate('normal');
                 } else {
-                    console.log('[MFC] Continue successfully added text. Stopping.');
+                    console.log('[MFC] Continue successful.');
                 }
                 
                 // --- CUSTOM LOGIC END ---
