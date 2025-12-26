@@ -281,23 +281,21 @@ const buildSwipeDom = (mfc, el)=>{
                 if (busy()) return;
                 log('[CONTINUE]');
                 
-                // --- AGGRESSIVE PARAGRAPH BREAK LOGIC ---
+                // --- INVISIBLE NUDGE LOGIC ---
                 
-                // Get the last message
                 const mes = chat.at(-1);
 
-                // Append TWO newlines. 
-                // This is the universal signal for "New Paragraph" in completion models.
-                // It is much harder for the AI to ignore than a space.
-                mes.mes = mes.mes + "\n\n";
+                // Append a NON-BREAKING SPACE (\u00A0).
+                // This looks like a normal space to you, but proxies usually 
+                // consider it a "special character" and won't delete it.
+                // This forces the AI to see the text as "not finished".
+                mes.mes = mes.mes + "\u00A0";
                 
-                // Save the chat so the backend sees the newlines
                 saveChatConditional();
-                
-                // Force UI update so you see the cursor move down immediately
                 eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
                 
-                // Trigger the standard continue (keeps it in the same box)
+                await delay(50);
+                
                 await Generate('continue');
                 
                 // --- END LOGIC ---
