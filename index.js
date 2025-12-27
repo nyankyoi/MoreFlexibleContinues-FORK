@@ -281,17 +281,20 @@ const buildSwipeDom = (mfc, el)=>{
                 if (busy()) return;
                 log('[CONTINUE]');
                 
-                // --- ROBUST FORCE & CLEANUP ---
+                // --- ROBUST INSTRUCTION FORCE & CLEANUP ---
                 
                 const mes = chat.at(-1);
                 const originalText = mes.mes;
                 
-                // The Marker
-                const systemTag = "[System Note: NEVER WRITE FOR";
-                const marker = " ... " + systemTag + " {{user}} in terms of dialogues and action. It's sole purpose is to only write for {{char}} and other various NPCs in the roleplay]";
+                // We use a unique "Anchor" phrase that we can hunt for later.
+                const anchor = "[System Note: NEVER WRITE FOR";
+                
+                // The full marker text. We don't rely on this exact string for cleanup, 
+                // we only use it for insertion.
+                const marker = " ... " + anchor + " {{user}} in terms of dialogues and action. It's sole purpose is to only write for {{char}} and other various NPCs in the roleplay]";
                 
                 // Append marker if not present
-                if (!originalText.includes(systemTag)) {
+                if (!originalText.includes(anchor)) {
                     mes.mes = originalText + marker;
                     saveChatConditional();
                     eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
@@ -304,9 +307,9 @@ const buildSwipeDom = (mfc, el)=>{
                     const newMes = chat.at(-1);
                     const currentText = newMes.mes;
                     
-                    // TAG HUNT: We look specifically for the start of the System Note tag.
+                    // ANCHOR HUNT: We look specifically for the start of the System Note tag.
                     // This finds it even if "..." became "…" or spaces were changed.
-                    const tagIndex = currentText.lastIndexOf(systemTag);
+                    const tagIndex = currentText.lastIndexOf(anchor);
                     
                     if (tagIndex !== -1) {
                         // We found the tag. 
@@ -318,6 +321,9 @@ const buildSwipeDom = (mfc, el)=>{
                             let newContent = currentText.substring(closingIndex + 1);
 
                             // CLEANUP: Remove any leading Dots, Spaces, or Newlines from the new text
+                            // Regex explained:
+                            // ^        : Start of string
+                            // [\s\.\n…]+ : Match any whitespace, regular dots, newlines, OR smart ellipsis chars
                             newContent = newContent.replace(/^[\s\.\n…]+/, "");
                             
                             // Stitch it back: Original Text + New Content
@@ -328,9 +334,12 @@ const buildSwipeDom = (mfc, el)=>{
                             eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
                         }
                     } else {
-                         // Fallback: If we can't find the tag (meaning it might have been mangled differently),
-                         // check if the length implies it's just the marker sitting there.
-                         // If the text ends with "roleplay]", we assume it's the marker and kill it.
+                         // Fallback: If we can't find the anchor (e.g. AI deleted it?), 
+                         // we check if the text *contains* the new content appended to the original.
+                         // This is a safety measure. If text grew but tag is gone, we might be okay.
+                         // But if the tag is stuck there in a weird format, it's better to revert.
+                         
+                         // Simple check: does it end with the tail of our marker?
                          if (currentText.trim().endsWith("roleplay]")) {
                              newMes.mes = originalText;
                              saveChatConditional();
