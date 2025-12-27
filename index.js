@@ -281,17 +281,17 @@ const buildSwipeDom = (mfc, el)=>{
                 if (busy()) return;
                 log('[CONTINUE]');
                 
-                // --- INSTRUCTION FORCE & CLEANUP ---
+                // --- ROBUST FORCE & CLEANUP ---
                 
                 const mes = chat.at(-1);
                 const originalText = mes.mes;
                 
-                // The Marker includes the Force Text (...) AND the System Instruction.
-                // We use {{user}} and {{char}} which SillyTavern will swap before sending to the AI.
-                const marker = " ... [System Note: NEVER WRITE FOR {{user}} in terms of dialogues and action. It's sole purpose is to only write for {{char}} and other various NPCs in the roleplay]";
+                // The Marker
+                const systemTag = "[System Note: NEVER WRITE FOR";
+                const marker = " ... " + systemTag + " {{user}} in terms of dialogues and action. It's sole purpose is to only write for {{char}} and other various NPCs in the roleplay]";
                 
                 // Append marker if not present
-                if (!originalText.endsWith(marker)) {
+                if (!originalText.includes(systemTag)) {
                     mes.mes = originalText + marker;
                     saveChatConditional();
                     eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
@@ -304,27 +304,38 @@ const buildSwipeDom = (mfc, el)=>{
                     const newMes = chat.at(-1);
                     const currentText = newMes.mes;
                     
-                    // Fuzzy Find: Look for the marker we added.
-                    const markerIndex = currentText.lastIndexOf(marker);
+                    // TAG HUNT: We look specifically for the start of the System Note tag.
+                    // This finds it even if "..." became "…" or spaces were changed.
+                    const tagIndex = currentText.lastIndexOf(systemTag);
                     
-                    if (markerIndex !== -1) {
-                        // Found it! Extract everything AFTER the instruction.
-                        let newContent = currentText.substring(markerIndex + marker.length);
+                    if (tagIndex !== -1) {
+                        // We found the tag. 
+                        // Now find the closing bracket "]" after the tag to know where the marker ends.
+                        const closingIndex = currentText.indexOf("]", tagIndex);
+                        
+                        if (closingIndex !== -1) {
+                            // Extract everything AFTER the closing bracket
+                            let newContent = currentText.substring(closingIndex + 1);
 
-                        // CLEANUP: Remove any leading Dots, Spaces, or Newlines the AI added
-                        newContent = newContent.replace(/^[\s\.\n]+/, "");
-                        
-                        // Stitch it back: Original Text + New Content
-                        newMes.mes = originalText + newContent;
-                        
-                        console.log('[MFC] Instruction marker removed. Text restored.');
-                        saveChatConditional();
-                        eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
-                    } else if (currentText === originalText + marker) {
-                         // Fallback: If AI timed out, remove the dirty marker.
-                         newMes.mes = originalText;
-                         saveChatConditional();
-                         eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
+                            // CLEANUP: Remove any leading Dots, Spaces, or Newlines from the new text
+                            newContent = newContent.replace(/^[\s\.\n…]+/, "");
+                            
+                            // Stitch it back: Original Text + New Content
+                            newMes.mes = originalText + newContent;
+                            
+                            console.log('[MFC] Instruction marker found and removed. Text restored.');
+                            saveChatConditional();
+                            eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
+                        }
+                    } else {
+                         // Fallback: If we can't find the tag (meaning it might have been mangled differently),
+                         // check if the length implies it's just the marker sitting there.
+                         // If the text ends with "roleplay]", we assume it's the marker and kill it.
+                         if (currentText.trim().endsWith("roleplay]")) {
+                             newMes.mes = originalText;
+                             saveChatConditional();
+                             eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
+                         }
                     }
                 }
                 
