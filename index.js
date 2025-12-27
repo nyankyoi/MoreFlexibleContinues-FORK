@@ -281,19 +281,17 @@ const buildSwipeDom = (mfc, el)=>{
                 if (busy()) return;
                 log('[CONTINUE]');
                 
-                // --- LOOP-PROOF FORCE & CLEANUP ---
+                // --- INSTRUCTION + TRAILING DOTS LOGIC ---
                 
                 const mes = chat.at(-1);
                 const originalText = mes.mes;
                 
-                // We use a unique "Anchor" phrase that we can hunt for later.
+                // ANCHOR: We use this to find the block later.
                 const anchor = "[System Note: NEVER WRITE FOR";
                 
-                // NEW STRATEGY:
-                // 1. Use "\n\n" to force a paragraph break (Prevents Looping/Repetition)
-                // 2. Add the System Note after the break.
-                // 3. The Proxy keeps the "\n\n" because text follows it.
-                const marker = "\n\n" + anchor + " {{user}} in terms of dialogues and action. It's sole purpose is to only write for {{char}} and other various NPCs in the roleplay]";
+                // MARKER: We place the dots ... AFTER the instruction.
+                // This makes the AI see: "Here is a rule. Now continue..."
+                const marker = " " + anchor + " {{user}}. Write for {{char}}.] ...";
                 
                 // Append marker if not present
                 if (!originalText.includes(anchor)) {
@@ -309,32 +307,42 @@ const buildSwipeDom = (mfc, el)=>{
                     const newMes = chat.at(-1);
                     const currentText = newMes.mes;
                     
-                    // ANCHOR HUNT: Find the start of the System Note.
+                    // CLEANUP STRATEGY:
+                    // 1. Find the Anchor ("System Note...").
                     const tagIndex = currentText.lastIndexOf(anchor);
                     
                     if (tagIndex !== -1) {
-                        // Found the tag. Now find where it ends (the closing bracket).
+                        // 2. Find the closing bracket.
                         const closingIndex = currentText.indexOf("]", tagIndex);
                         
                         if (closingIndex !== -1) {
-                            // Extract everything AFTER the instruction.
-                            // This effectively deletes the entire "\n\n[System Note...]" block + any garbage.
+                            // 3. Extract everything AFTER the closing bracket.
+                            // This effectively cuts out the note AND the "..." because the dots are after the bracket.
+                            // BUT wait, "..." is after the bracket in our marker.
+                            // So 'newContent' will start with " ..." followed by the AI's text.
                             let newContent = currentText.substring(closingIndex + 1);
 
-                            // CLEANUP: Remove any leading Dots, Spaces, Newlines, or Ellipsis chars from the NEW text.
-                            // This ensures the new paragraph starts cleanly.
+                            // 4. CLEANUP: Remove leading Dots, Smart Ellipsis, Spaces, Newlines.
+                            // This strips the " ..." we added, and any " ." the AI added.
                             newContent = newContent.replace(/^[\s\.\n…]+/, "");
                             
-                            // Stitch it back: Original Text + New Content
-                            newMes.mes = originalText + newContent;
+                            // 5. BLANK CHECK: If newContent is empty, it means AI wrote nothing.
+                            // In that case, we MUST revert to originalText to hide the note.
+                            if (newContent.length === 0) {
+                                newMes.mes = originalText;
+                            } else {
+                                // AI wrote something! Stitch it.
+                                newMes.mes = originalText + newContent;
+                            }
                             
-                            console.log('[MFC] Instruction marker found and removed. Text restored.');
+                            console.log('[MFC] Marker processed. Text cleaned.');
                             saveChatConditional();
                             eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
                         }
                     } else {
-                         // Fallback: If tag is missing, check if it looks like the marker is just hanging there.
-                         if (currentText.trim().endsWith("roleplay]")) {
+                         // Fallback: If we can't find the anchor at all (weird proxy behavior?), 
+                         // but the text ends with the marker's tail, revert.
+                         if (currentText.trim().endsWith("...]")) { // Safety check
                              newMes.mes = originalText;
                              saveChatConditional();
                              eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
