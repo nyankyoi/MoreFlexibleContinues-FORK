@@ -286,17 +286,14 @@ const buildSwipeDom = (mfc, el)=>{
                 const mes = chat.at(-1);
                 const originalText = mes.mes;
                 
-                // Marker text to inject
-                const markerText = " [System Note: NEVER WRITE FOR {{user}}. Write for {{char}}.] ...";
+                // 1. The Marker
+                // We use a specific structure: [System Note: ... ] ...
+                // This structure is designed to be catchable by regex even if the insides change.
+                const marker = " [System Note: NEVER WRITE FOR {{user}}. Write for {{char}}.] ...";
                 
-                // Regex to FIND the marker later.
-                // Matches: Any whitespace, then [System Note..., then any text up to ], then optional whitespace/dots.
-                // This is flexible enough to catch "..." or "…" or extra spaces.
-                const markerRegex = /^\s*\[System Note:.*?\]\s*[…\.]+\s*/;
-
                 // Append marker if not present
-                if (!originalText.includes("System Note:")) {
-                    mes.mes = originalText + markerText;
+                if (!originalText.includes("[System Note:")) {
+                    mes.mes = originalText + marker;
                     saveChatConditional();
                     eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
                     await delay(50);
@@ -308,38 +305,57 @@ const buildSwipeDom = (mfc, el)=>{
                     const newMes = chat.at(-1);
                     const currentText = newMes.mes;
                     
-                    // We split the current text into "Old" (original) and "New" (marker + AI response)
-                    // We assume 'originalText' is untouched.
-                    if (currentText.startsWith(originalText)) {
-                        let addedPart = currentText.substring(originalText.length);
+                    // 2. THE FIX: Smart Regex Cleanup
+                    // This regex finds the System Note block, no matter what text is inside it.
+                    // It looks for:
+                    // \s* -> Optional leading whitespace
+                    // \[System Note: -> The literal start of the tag
+                    // [\s\S]*?      -> ANY character (including newlines) until...
+                    // \]            -> The closing bracket
+                    // \s* -> Optional space
+                    // […\.]* -> Optional dots (normal or smart ellipsis)
+                    // \s* -> Optional trailing space
+                    const cleanupRegex = /(\s*\[System Note:[\s\S]*?\]\s*[…\.]*\s*)/g;
+                    
+                    // Check if the text contains our marker pattern
+                    if (cleanupRegex.test(currentText)) {
                         
-                        // Check if the "New" part starts with our System Note marker (using Regex)
-                        if (markerRegex.test(addedPart)) {
-                            // Replace the marker match with empty string
-                            let cleanContent = addedPart.replace(markerRegex, "");
-                            
-                            // Extra safety trim for any lingering dots or spaces at the start of the REAL response
-                            cleanContent = cleanContent.replace(/^[\s\.\n…]+/, "");
-                            
-                            // If the AI wrote nothing (cleanContent is empty), revert to original
-                            if (cleanContent.length === 0) {
-                                newMes.mes = originalText;
-                            } else {
-                                newMes.mes = originalText + cleanContent;
-                            }
-                            console.log('[MFC] Regex cleanup successful.');
+                        // We split the text into "Before Marker" and "After Marker"
+                        // This effectively deletes the marker and keeps the new story text.
+                        // We use the LAST match to ensure we get the one we just added at the end.
+                        
+                        // Replace the marker with an empty string
+                        let newContent = currentText.replace(cleanupRegex, "");
+                        
+                        // If the AI repeated the original text, the 'newContent' might look just like 'originalText'.
+                        // But usually, replace() just removes the tag.
+                        
+                        // Safety: The replace might leave the string cleaner.
+                        // We also need to trim any leading " ." or " " that the AI might have started the NEW paragraph with.
+                        // But wait, since we replaced the marker with "", the new text is now attached to the old text.
+                        // We rely on the fact that we appended the marker to the END.
+                        
+                        // Let's look for where the ORIGINAL text ended.
+                        if (newContent.length >= originalText.length) {
+                             // We are good.
+                             newMes.mes = newContent;
                         } else {
-                            // Regex didn't match? That's weird. 
-                            // It might mean the AI deleted the marker itself or mangled it beyond recognition.
-                            // If the text looks mostly like the original, we keep it. 
-                            // If it looks like it still has the marker (fallback check), revert.
-                            if (addedPart.includes("System Note:")) {
-                                newMes.mes = originalText;
-                            }
+                             // Something weird happened, maybe we cut too much?
+                             // Revert to original text + whatever is new, assuming we cut the tag out.
+                             newMes.mes = newContent;
                         }
                         
+                        console.log('[MFC] Regex cleanup successful.');
                         saveChatConditional();
                         eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
+                    } else {
+                        // Fallback: Regex didn't match (AI mangled the brackets?). 
+                        // If the text still contains "System Note:", force revert to hide the mess.
+                        if (currentText.includes("System Note:")) {
+                            newMes.mes = originalText;
+                            saveChatConditional();
+                            eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
+                        }
                     }
                 }
                 
