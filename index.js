@@ -281,7 +281,7 @@ const buildSwipeDom = (mfc, el)=>{
                 if (busy()) return;
                 log('[CONTINUE]');
                 
-                // --- ROBUST INSTRUCTION FORCE & CLEANUP ---
+                // --- LOOP-PROOF FORCE & CLEANUP ---
                 
                 const mes = chat.at(-1);
                 const originalText = mes.mes;
@@ -289,9 +289,11 @@ const buildSwipeDom = (mfc, el)=>{
                 // We use a unique "Anchor" phrase that we can hunt for later.
                 const anchor = "[System Note: NEVER WRITE FOR";
                 
-                // The full marker text. We don't rely on this exact string for cleanup, 
-                // we only use it for insertion.
-                const marker = " ... " + anchor + " {{user}} in terms of dialogues and action. It's sole purpose is to only write for {{char}} and other various NPCs in the roleplay]";
+                // NEW STRATEGY:
+                // 1. Use "\n\n" to force a paragraph break (Prevents Looping/Repetition)
+                // 2. Add the System Note after the break.
+                // 3. The Proxy keeps the "\n\n" because text follows it.
+                const marker = "\n\n" + anchor + " {{user}} in terms of dialogues and action. It's sole purpose is to only write for {{char}} and other various NPCs in the roleplay]";
                 
                 // Append marker if not present
                 if (!originalText.includes(anchor)) {
@@ -307,23 +309,20 @@ const buildSwipeDom = (mfc, el)=>{
                     const newMes = chat.at(-1);
                     const currentText = newMes.mes;
                     
-                    // ANCHOR HUNT: We look specifically for the start of the System Note tag.
-                    // This finds it even if "..." became "…" or spaces were changed.
+                    // ANCHOR HUNT: Find the start of the System Note.
                     const tagIndex = currentText.lastIndexOf(anchor);
                     
                     if (tagIndex !== -1) {
-                        // We found the tag. 
-                        // Now find the closing bracket "]" after the tag to know where the marker ends.
+                        // Found the tag. Now find where it ends (the closing bracket).
                         const closingIndex = currentText.indexOf("]", tagIndex);
                         
                         if (closingIndex !== -1) {
-                            // Extract everything AFTER the closing bracket
+                            // Extract everything AFTER the instruction.
+                            // This effectively deletes the entire "\n\n[System Note...]" block + any garbage.
                             let newContent = currentText.substring(closingIndex + 1);
 
-                            // CLEANUP: Remove any leading Dots, Spaces, or Newlines from the new text
-                            // Regex explained:
-                            // ^        : Start of string
-                            // [\s\.\n…]+ : Match any whitespace, regular dots, newlines, OR smart ellipsis chars
+                            // CLEANUP: Remove any leading Dots, Spaces, Newlines, or Ellipsis chars from the NEW text.
+                            // This ensures the new paragraph starts cleanly.
                             newContent = newContent.replace(/^[\s\.\n…]+/, "");
                             
                             // Stitch it back: Original Text + New Content
@@ -334,12 +333,7 @@ const buildSwipeDom = (mfc, el)=>{
                             eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
                         }
                     } else {
-                         // Fallback: If we can't find the anchor (e.g. AI deleted it?), 
-                         // we check if the text *contains* the new content appended to the original.
-                         // This is a safety measure. If text grew but tag is gone, we might be okay.
-                         // But if the tag is stuck there in a weird format, it's better to revert.
-                         
-                         // Simple check: does it end with the tail of our marker?
+                         // Fallback: If tag is missing, check if it looks like the marker is just hanging there.
                          if (currentText.trim().endsWith("roleplay]")) {
                              newMes.mes = originalText;
                              saveChatConditional();
