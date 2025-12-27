@@ -281,21 +281,22 @@ const buildSwipeDom = (mfc, el)=>{
                 if (busy()) return;
                 log('[CONTINUE]');
                 
-                // --- INSTRUCTION + TRAILING DOTS LOGIC ---
+                // --- REGEX CLEANUP LOGIC ---
                 
                 const mes = chat.at(-1);
                 const originalText = mes.mes;
                 
-                // ANCHOR: We use this to find the block later.
-                const anchor = "[System Note: NEVER WRITE FOR";
+                // Marker text to inject
+                const markerText = " [System Note: NEVER WRITE FOR {{user}}. Write for {{char}}.] ...";
                 
-                // MARKER: We place the dots ... AFTER the instruction.
-                // This makes the AI see: "Here is a rule. Now continue..."
-                const marker = " " + anchor + " {{user}}. Write for {{char}}.] ...";
-                
+                // Regex to FIND the marker later.
+                // Matches: Any whitespace, then [System Note..., then any text up to ], then optional whitespace/dots.
+                // This is flexible enough to catch "..." or "…" or extra spaces.
+                const markerRegex = /^\s*\[System Note:.*?\]\s*[…\.]+\s*/;
+
                 // Append marker if not present
-                if (!originalText.includes(anchor)) {
-                    mes.mes = originalText + marker;
+                if (!originalText.includes("System Note:")) {
+                    mes.mes = originalText + markerText;
                     saveChatConditional();
                     eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
                     await delay(50);
@@ -307,46 +308,38 @@ const buildSwipeDom = (mfc, el)=>{
                     const newMes = chat.at(-1);
                     const currentText = newMes.mes;
                     
-                    // CLEANUP STRATEGY:
-                    // 1. Find the Anchor ("System Note...").
-                    const tagIndex = currentText.lastIndexOf(anchor);
-                    
-                    if (tagIndex !== -1) {
-                        // 2. Find the closing bracket.
-                        const closingIndex = currentText.indexOf("]", tagIndex);
+                    // We split the current text into "Old" (original) and "New" (marker + AI response)
+                    // We assume 'originalText' is untouched.
+                    if (currentText.startsWith(originalText)) {
+                        let addedPart = currentText.substring(originalText.length);
                         
-                        if (closingIndex !== -1) {
-                            // 3. Extract everything AFTER the closing bracket.
-                            // This effectively cuts out the note AND the "..." because the dots are after the bracket.
-                            // BUT wait, "..." is after the bracket in our marker.
-                            // So 'newContent' will start with " ..." followed by the AI's text.
-                            let newContent = currentText.substring(closingIndex + 1);
-
-                            // 4. CLEANUP: Remove leading Dots, Smart Ellipsis, Spaces, Newlines.
-                            // This strips the " ..." we added, and any " ." the AI added.
-                            newContent = newContent.replace(/^[\s\.\n…]+/, "");
+                        // Check if the "New" part starts with our System Note marker (using Regex)
+                        if (markerRegex.test(addedPart)) {
+                            // Replace the marker match with empty string
+                            let cleanContent = addedPart.replace(markerRegex, "");
                             
-                            // 5. BLANK CHECK: If newContent is empty, it means AI wrote nothing.
-                            // In that case, we MUST revert to originalText to hide the note.
-                            if (newContent.length === 0) {
+                            // Extra safety trim for any lingering dots or spaces at the start of the REAL response
+                            cleanContent = cleanContent.replace(/^[\s\.\n…]+/, "");
+                            
+                            // If the AI wrote nothing (cleanContent is empty), revert to original
+                            if (cleanContent.length === 0) {
                                 newMes.mes = originalText;
                             } else {
-                                // AI wrote something! Stitch it.
-                                newMes.mes = originalText + newContent;
+                                newMes.mes = originalText + cleanContent;
                             }
-                            
-                            console.log('[MFC] Marker processed. Text cleaned.');
-                            saveChatConditional();
-                            eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
+                            console.log('[MFC] Regex cleanup successful.');
+                        } else {
+                            // Regex didn't match? That's weird. 
+                            // It might mean the AI deleted the marker itself or mangled it beyond recognition.
+                            // If the text looks mostly like the original, we keep it. 
+                            // If it looks like it still has the marker (fallback check), revert.
+                            if (addedPart.includes("System Note:")) {
+                                newMes.mes = originalText;
+                            }
                         }
-                    } else {
-                         // Fallback: If we can't find the anchor at all (weird proxy behavior?), 
-                         // but the text ends with the marker's tail, revert.
-                         if (currentText.trim().endsWith("...]")) { // Safety check
-                             newMes.mes = originalText;
-                             saveChatConditional();
-                             eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
-                         }
+                        
+                        saveChatConditional();
+                        eventSource.emit(event_types.MESSAGE_EDITED, chat.length - 1);
                     }
                 }
                 
